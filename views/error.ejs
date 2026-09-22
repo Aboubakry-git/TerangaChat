@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <%- include('partials/head', { title: 'Erreur' }) %>
+</head>
+<body class="auth-body">
+  <div class="auth-container">
+    <div class="auth-card">
+      <div class="auth-logo">
+        <i class="fas fa-exclamation-triangle"></i>
+        <h1>Erreur</h1>
+      </div>
+      <p style="text-align:center;color:#666;margin-bottom:20px;"><%= error || 'Une erreur est survenue' %></p>
+      <a href="/chat" class="btn btn-primary btn-block">Retour</a>
+    </div>
+  </div>
+</body>
+</html>

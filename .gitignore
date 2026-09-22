@@ -1,0 +1,59 @@
+# ===== Dépendances =====
+node_modules/
+package-lock.json
+
+# ===== Variables d'environnement (CRITIQUE) =====
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+
+# ===== Certificats SSL (CRITIQUE) =====
+certs/
+*.pem
+*.key
+*.crt
+*.cert
+
+# ===== Uploads utilisateurs =====
+public/uploads/
+uploads/
+tmp/
+
+# ===== Logs =====
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ===== Fichiers de sauvegarde =====
+*.bak
+*.tmp
+*.swp
+*.orig
+
+# ===== Build / Cache =====
+dist/
+build/
+.cache/
+.parcel-cache/
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ===== IDE =====
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# ===== Divers =====
+*.pid
+*.seed
+*.pid.lock

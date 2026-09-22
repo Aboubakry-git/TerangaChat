@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <%- include('../partials/head', { title: 'Discussions' }) %>
+  <link rel="stylesheet" href="/css/whatsapp.css">
+</head>
+<body class="chat-body">
+  <div class="chat-app">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <a href="/profile" class="sidebar-user" title="Mon profil">
+          <div class="sidebar-user-avatar">
+            <% if (user.avatar_url) { %>
+              <img src="<%= user.avatar_url %>" alt="Photo de profil">
+            <% } else { %>
+              <div class="avatar-placeholder"><%= getInitials(user.username || '?') %></div>
+            <% } %>
+          </div>
+          <span class="sr-only">Mon profil</span>
+        </a>
+        <span class="sidebar-app-name">TerangaChat</span>
+        <div class="sidebar-actions">
+          <button class="icon-btn" type="button" title="Statut"><i class="fas fa-circle-notch"></i></button>
+          <button class="icon-btn" id="newChatBtn" title="Nouvelle discussion"><i class="fas fa-edit"></i></button>
+          <button class="icon-btn" id="newGroupBtn" title="Nouveau groupe"><i class="fas fa-users"></i></button>
+          <button class="icon-btn" id="appMenuBtn" title="Menu"><i class="fas fa-ellipsis-v"></i></button>
+        </div>
+        <div class="dropdown-menu app-menu" id="appMenu">
+          <button class="dropdown-item" type="button" data-sidebar-panel="chats"><i class="fas fa-comments"></i> Discussions</button>
+          <a class="dropdown-item" href="/profile"><i class="fas fa-user-cog"></i> Profil</a>
+          <button class="dropdown-item" type="button" id="themeToggle"><i class="fas fa-moon"></i><span>Mode sombre</span></button>
+          <button class="dropdown-item" type="button" data-sidebar-panel="archived"><i class="fas fa-archive"></i> Archivées</button>
+          <button class="dropdown-item" type="button" data-sidebar-panel="calls"><i class="fas fa-phone"></i> Appels</button>
+          <button class="dropdown-item" type="button" data-sidebar-panel="notifications"><i class="fas fa-bell"></i> Notifications</button>
+          <a class="dropdown-item" href="/logout"><i class="fas fa-sign-out-alt"></i> Déconnexion</a>
+        </div>
+      </div>
+
+      <div class="sidebar-search">
+        <div class="search-box">
+          <i class="fas fa-search"></i>
+          <input type="text" id="globalSearch" placeholder="Rechercher...">
+        </div>
+      </div>
+
+      <div class="chat-filters" aria-label="Filtres des discussions">
+        <button class="filter-chip active" type="button" data-filter="all">Tous</button>
+        <button class="filter-chip" type="button" data-filter="unread">Non lus</button>
+        <button class="filter-chip" type="button" data-filter="favorites">Favoris</button>
+        <button class="filter-chip" type="button" data-filter="group">Groupes</button>
+      </div>
+
+      <div class="sidebar-content">
+        <div class="tab-content active" id="tab-chats">
+          <% if (conversations && conversations.length > 0) { %>
+            <% conversations.forEach(function(conv) { %>
+              <a href="/chat/<%= conv.conversation_id %>" class="conversation-item <%= activeConversation && activeConversation.conversation_id.toString() === conv.conversation_id.toString() ? 'active' : '' %>" data-id="<%= conv.conversation_id %>" data-type="<%= conv.type %>" data-unread="false" data-favorite="false">
+                <div class="conv-avatar">
+                  <% if (conv.avatar_url) { %>
+                    <img src="<%= conv.avatar_url %>" alt="">
+                  <% } else { %>
+                    <div class="avatar-placeholder">
+                      <%= conv.type === 'group' ? '<i class="fas fa-users"></i>' : getInitials(conv.name || '?') %>
+                    </div>
+                  <% } %>
+                </div>
+                <div class="conv-info">
+                  <div class="conv-top">
+                    <span class="conv-name"><%= conv.type === 'group' ? (conv.name || 'Groupe') : (conv.name || 'Discussion privée') %></span>
+                    <time class="conv-time" datetime="<%= new Date(conv.created_at).toISOString() %>"><%= new Date(conv.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) %></time>
+                  </div>
+                  <div class="conv-bottom">
+                    <span class="conv-preview">Appuyez pour ouvrir</span>
+                  </div>
+                </div>
+              </a>
+            <% }) %>
+          <% } else { %>
+            <div class="empty-state">
+              <i class="fas fa-comments"></i>
+              <p>Aucune discussion. Commencez une nouvelle conversation !</p>
+            </div>
+          <% } %>
+        </div>
+
+        <div class="tab-content" id="tab-archived">
+          <div class="empty-state"><i class="fas fa-archive"></i><p>Aucune discussion archivée</p></div>
+        </div>
+
+        <div class="tab-content" id="tab-calls">
+          <div class="empty-state"><i class="fas fa-phone"></i><p>Aucun appel récent</p></div>
+        </div>
+
+        <div class="tab-content" id="tab-notifications">
+          <div class="empty-state"><i class="fas fa-bell"></i><p>Aucune notification</p></div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Chat Area -->
+    <main class="chat-main">
+      <% if (activeConversation) { %>
+        <div class="chat-header" data-conv-id="<%= activeConversation.conversation_id %>">
+          <button class="icon-btn mobile-back" id="mobileBack"><i class="fas fa-arrow-left"></i></button>
+          <div class="chat-header-info">
+            <div class="chat-header-avatar">
+              <% if (activeConversation.avatar_url) { %>
+                <img src="<%= activeConversation.avatar_url %>" alt="">
+              <% } else { %>
+                <div class="avatar-placeholder">
+                  <%= activeConversation.type === 'group' ? '<i class="fas fa-users"></i>' : getInitials(activeConversation.name || '?') %>
+                </div>
+              <% } %>
+            </div>
+            <div class="chat-header-text">
+              <h2><%= activeConversation.type === 'group' ? (activeConversation.name || 'Groupe') : (activeConversation.name || 'Discussion privée') %></h2>
+              <span class="chat-header-status" id="presenceStatus">
+                <% if (activeConversation.type === 'group') { %>
+                  <%= activeMembers.length %> membres
+                <% } else { %>
+                  <span class="presence-text">Hors ligne</span>
+                <% } %>
+              </span>
+            </div>
+          </div>
+          <div class="chat-header-actions">
+            <button class="icon-btn" id="callVideoBtn" title="Appel vidéo"><i class="fas fa-video"></i></button>
+            <button class="icon-btn" id="callAudioBtn" title="Appel audio"><i class="fas fa-phone"></i></button>
+            <button class="icon-btn" id="searchInConvBtn" title="Rechercher"><i class="fas fa-search"></i></button>
+            <button class="icon-btn" id="convMenuBtn" title="Menu"><i class="fas fa-ellipsis-v"></i></button>
+          </div>
+
+          <div class="dropdown-menu" id="convMenu">
+            <button class="dropdown-item" id="convInfoBtn"><i class="fas fa-info-circle"></i> Infos</button>
+            <button class="dropdown-item" id="archiveBtn"><i class="fas fa-archive"></i> Archiver</button>
+            <button class="dropdown-item" id="exportBtn"><i class="fas fa-download"></i> Exporter</button>
+            <% if (activeConversation.type === 'group') { %>
+              <button class="dropdown-item" id="addMemberBtn"><i class="fas fa-user-plus"></i> Ajouter membre</button>
+              <button class="dropdown-item" id="leaveGroupBtn"><i class="fas fa-door-open"></i> Quitter le groupe</button>
+            <% } %>
+          </div>
+        </div>
+
+        <div class="search-in-conv" id="searchInConv" style="display:none">
+          <input type="text" id="searchInConvInput" placeholder="Rechercher dans cette discussion...">
+          <button class="icon-btn" id="closeSearch"><i class="fas fa-times"></i></button>
+        </div>
+
+        <div class="messages-container" id="messagesContainer" data-conv-id="<%= activeConversation.conversation_id %>">
+          <% if (messages && messages.length > 0) { %>
+            <% let previousMessageDay = null; %>
+            <% messages.forEach(function(msg) { %>
+              <% const messageDay = new Date(msg.created_at).toLocaleDateString('fr-FR'); %>
+              <% if (messageDay !== previousMessageDay) { previousMessageDay = messageDay; %>
+                <div class="date-separator"><span><%= messageDay %></span></div>
+              <% } %>
+              <div class="message <%= msg.sender_id.toString() === user.user_id.toString() ? 'outgoing' : 'incoming' %>" data-message-id="<%= msg.message_id %>">
+                <% if (activeConversation.type === 'group' && msg.sender_id.toString() !== user.user_id.toString()) { %>
+                  <div class="message-sender"><%= msg.sender_name || 'Utilisateur' %></div>
+                <% } %>
+                <div class="message-bubble">
+                  <% if (msg.is_deleted) { %>
+                    <span class="message-deleted"><i class="fas fa-ban"></i> Ce message a été supprimé</span>
+                  <% } else if (msg.message_type === 'text') { %>
+                    <div class="message-content"><%= msg.content %></div>
+                  <% } else if (msg.message_type === 'voice') { %>
+                    <div class="message-voice">
+                      <button class="voice-play-btn"><i class="fas fa-play"></i></button>
+                      <div class="voice-wave"><div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div></div>
+                      <span class="voice-duration"><%= msg.duration || 0 %>s</span>
+                      <audio src="<%= msg.file_url %>" preload="metadata"></audio>
+                    </div>
+                  <% } else if (msg.message_type === 'image' || msg.message_type === 'video') { %>
+                    <div class="message-media">
+                      <% if (msg.message_type === 'image') { %>
+                        <img src="<%= msg.file_url %>" alt="<%= msg.file_name %>" class="message-img" loading="lazy">
+                      <% } else { %>
+                        <video src="<%= msg.file_url %>" controls class="message-video"></video>
+                      <% } %>
+                      <% if (msg.content) { %><div class="message-caption"><%= msg.content %></div><% } %>
+                    </div>
+                  <% } else if (msg.message_type === 'file') { %>
+                    <div class="message-file">
+                      <i class="fas fa-file"></i>
+                      <a href="<%= msg.file_url %>" download="<%= msg.file_name %>"><%= msg.file_name %></a>
+                      <span class="file-size"><%= msg.file_size %></span>
+                    </div>
+                  <% } %>
+                  <div class="message-meta">
+                    <% if (msg.is_edited) { %><span class="edited-tag">modifié</span><% } %>
+                    <span class="message-time"><%= new Date(msg.created_at).toLocaleTimeString('fr-FR', {hour:'2-digit', minute:'2-digit'}) %></span>
+                    <% if (msg.sender_id.toString() === user.user_id.toString()) { %>
+                      <span class="message-checks"><i class="fas fa-check-double"></i></span>
+                    <% } %>
+                  </div>
+                </div>
+                <div class="message-actions-menu">
+                  <button class="msg-action" data-action="reply"><i class="fas fa-reply"></i></button>
+                  <button class="msg-action" data-action="edit"><i class="fas fa-edit"></i></button>
+                  <button class="msg-action" data-action="delete"><i class="fas fa-trash"></i></button>
+                </div>
+              </div>
+            <% }) %>
+          <% } else { %>
+            <div class="empty-chat">
+              <i class="fas fa-comments"></i>
+              <p>Démarrez votre conversation</p>
+            </div>
+          <% } %>
+        </div>
+
+        <div class="typing-indicator" id="typingIndicator" style="display:none">
+          <span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>
+          <span class="typing-text">en train d'écrire...</span>
+        </div>
+
+        <div class="message-input-area">
+          <div class="reply-preview" id="replyPreview" style="display:none">
+            <div class="reply-preview-content"></div>
+            <button class="icon-btn" id="cancelReply"><i class="fas fa-times"></i></button>
+          </div>
+          <div class="input-actions-left">
+            <button class="icon-btn" id="emojiBtn"><i class="fas fa-smile"></i></button>
+            <button class="icon-btn" id="attachBtn"><i class="fas fa-paperclip"></i></button>
+            <input type="file" id="fileInput" hidden multiple>
+          </div>
+          <div class="input-field">
+            <textarea id="messageInput" placeholder="Tapez un message..." rows="1"></textarea>
+          </div>
+          <div class="input-actions-right">
+            <button class="icon-btn" id="voiceRecordBtn" title="Message vocal"><i class="fas fa-microphone"></i></button>
+            <button class="icon-btn send-btn" id="sendBtn"><i class="fas fa-paper-plane"></i></button>
+          </div>
+        </div>
+
+        <div class="emoji-picker" id="emojiPicker" style="display:none">
+          <div class="emoji-grid">
+            <% const emojis = ['😀','😂','😍','🥰','😎','🤔','😢','😭','😡','👍','👎','👏','🙏','💪','❤️','🔥','✨','🎉','🎁','💯','😴','🤯','🤩','😱','🥳','😇','🤝','✅','❌','⭐','🌟','💎','🚀','🎵','🎶','📸','🎥','📞','💬','💭','😉','😋','🤗','🤣','😅','😘','🥺','😏','😌','🤓','🧐','🤨','😬','😮','😯','😲','🤐','😐','😶','🙄','😣','😥','🤤','😪','😓','😫','🥱','😤','😠','🤬','😈','💀','👻','🤡','👹','👽','🤖','🎃','😺','😸','😻','😼','😽','🙀','😿','😾','🤲','🙌','👊','✊','🤛','🤜','🤞','✌️','🤟','🤘','👌','🤌','🤏','👈','👉','👆','👇','☝️','✋','🤚','🖐️','🖖','👋','🤙','🦾','🖕','✍️','🦶','🦵','💄','💋','👄','🦷','👅','👂','🦻','👃','👀','👁️','🧠','🗣️','👤','👥','👶','👧','👦','👩','👨','🧒','🧑','👱','👴','👵','👲','👳','🧕','🧔','🧓']; %>
+            <% emojis.forEach(function(e) { %><button class="emoji-btn"><%= e %></button><% }) %>
+          </div>
+        </div>
+      <% } else { %>
+        <div class="no-conversation">
+          <div class="no-conv-content">
+            <img class="logo-chats" src="/images/logo-chats.svg" alt="Logo TerangaChat">
+            <h2>Bienvenue sur TerangaChat</h2>
+            <p>Sélectionnez une discussion ou commencez une nouvelle conversation</p>
+            <button class="btn btn-primary" id="startNewChat"><i class="fas fa-edit"></i> Nouvelle discussion</button>
+          </div>
+        </div>
+      <% } %>
+    </main>
+  </div>
+
+  <!-- New Chat Modal -->
+  <div class="modal-overlay" id="newChatModal" style="display:none">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Nouvelle discussion</h3>
+        <button class="icon-btn" onclick="document.getElementById('newChatModal').style.display='none'"><i class="fas fa-times"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="search-box">
+          <i class="fas fa-search"></i>
+          <input type="text" id="newChatSearch" placeholder="Rechercher un utilisateur...">
+        </div>
+        <div class="search-results" id="newChatResults"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- New Group Modal -->
+  <div class="modal-overlay" id="newGroupModal" style="display:none">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Nouveau groupe</h3>
+        <button class="icon-btn" onclick="document.getElementById('newGroupModal').style.display='none'"><i class="fas fa-times"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="group-avatar-field">
+          <label for="groupAvatarInput" class="group-avatar-picker" title="Ajouter une photo de groupe">
+            <span class="group-avatar-preview" id="groupAvatarPreview"><i class="fas fa-camera"></i></span>
+            <span>Ajouter une photo de groupe</span>
+          </label>
+          <input type="file" id="groupAvatarInput" accept="image/*" hidden>
+        </div>
+        <div class="form-group">
+          <label>Nom du groupe</label>
+          <input type="text" id="groupName" placeholder="Mon groupe">
+        </div>
+        <div class="form-group">
+          <label>Description (optionnel)</label>
+          <input type="text" id="groupDescription" placeholder="Description du groupe">
+        </div>
+        <div class="search-box">
+          <i class="fas fa-search"></i>
+          <input type="text" id="groupMemberSearch" placeholder="Ajouter des membres...">
+        </div>
+        <div class="selected-members" id="selectedMembers"></div>
+        <div class="search-results" id="groupMemberResults"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" id="createGroupBtn">Créer le groupe</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Call Modal -->
+  <div class="modal-overlay call-overlay" id="callModal" style="display:none">
+    <div class="call-container">
+      <div class="call-header">
+        <h3 id="callTitle">Appel</h3>
+        <span class="call-duration" id="callDuration">00:00</span>
+      </div>
+      <div class="call-body">
+        <div class="call-avatar" id="callAvatar">
+          <div class="avatar-placeholder"><i class="fas fa-user"></i></div>
+        </div>
+        <div class="call-status" id="callStatus">Appel en cours...</div>
+        <video id="localVideo" autoplay muted style="display:none"></video>
+        <div id="remoteVideos"></div>
+      </div>
+      <div class="call-controls">
+        <button class="call-btn" id="muteBtn"><i class="fas fa-microphone"></i></button>
+        <button class="call-btn" id="videoBtn"><i class="fas fa-video"></i></button>
+        <button class="call-btn hangup" id="hangupBtn"><i class="fas fa-phone-slash"></i></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Incoming Call Modal -->
+  <div class="modal-overlay call-overlay" id="incomingCallModal" style="display:none">
+    <div class="call-container">
+      <div class="call-header">
+        <h3 id="incomingCallTitle">Appel entrant</h3>
+      </div>
+      <div class="call-body">
+        <div class="call-avatar">
+          <div class="avatar-placeholder"><i class="fas fa-user"></i></div>
+        </div>
+        <div class="call-status" id="incomingCallStatus">Appel entrant...</div>
+      </div>
+      <div class="call-controls">
+        <button class="call-btn accept" id="acceptCallBtn"><i class="fas fa-phone"></i></button>
+        <button class="call-btn reject" id="rejectCallBtn"><i class="fas fa-phone-slash"></i></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Conversation Info Modal -->
+  <div class="modal-overlay" id="convInfoModal" style="display:none">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Informations</h3>
+        <button class="icon-btn" onclick="document.getElementById('convInfoModal').style.display='none'"><i class="fas fa-times"></i></button>
+      </div>
+      <div class="modal-body" id="convInfoBody"></div>
+    </div>
+  </div>
+
+  <script>
+    window.currentUserId = '<%= user.user_id %>';
+    window.currentUsername = '<%= user.username %>';
+    window.currentAvatar = '<%= user.avatar_url || "" %>';
+    window.activeConversationId = '<%= activeConversation ? activeConversation.conversation_id : "" %>';
+    window.activeConversationType = '<%= activeConversation ? activeConversation.type : "" %>';
+  </script>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <script src="/js/theme.js"></script>
+  <script src="/js/chat.js"></script>
+  <script src="/js/calls.js"></script>
+  <script src="/js/responsive.js"></script>
+</body>
+</html>

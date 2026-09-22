@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <%- include('../partials/head', { title: 'Utilisateurs bloqués' }) %>
+  <link rel="stylesheet" href="/css/whatsapp.css">
+</head>
+<body class="profile-body">
+
+  <div class="profile-container">
+
+    <div class="profile-header">
+      <a href="/profile" class="back-btn" aria-label="Retour">
+        <i class="fas fa-arrow-left"></i> Retour
+      </a>
+      <h1>Utilisateurs bloqués</h1>
+    </div>
+
+    <div class="profile-card">
+
+      <% if (blockedUsers && blockedUsers.length > 0) { %>
+
+        <p class="blocked-hint">
+          <%= blockedUsers.length %> utilisateur<%= blockedUsers.length > 1 ? 's' : '' %> bloqué<%= blockedUsers.length > 1 ? 's' : '' %>.
+          Ils ne peuvent plus vous envoyer de messages.
+        </p>
+
+        <div class="blocked-list">
+          <% blockedUsers.forEach(function(u) { %>
+            <div class="blocked-item" data-user-id="<%= u.user_id %>">
+              <div class="blocked-avatar">
+                <% if (u.avatar_url) { %>
+                  <img src="<%= u.avatar_url %>" alt="">
+                <% } else { %>
+                  <div class="avatar-placeholder"><%= (u.username || '?').substring(0,2).toUpperCase() %></div>
+                <% } %>
+              </div>
+              <div class="blocked-info">
+                <span class="blocked-name"><%= u.full_name || u.username %></span>
+                <span class="blocked-fullname">@<%= u.username %></span>
+              </div>
+              <button type="button" class="btn btn-sm btn-outline-danger" data-action="unblock">
+                <i class="fas fa-unlock"></i> Débloquer
+              </button>
+            </div>
+          <% }) %>
+        </div>
+
+      <% } else { %>
+
+        <div class="empty-state">
+          <i class="fas fa-ban"></i>
+          <p>Aucun utilisateur bloqué</p>
+          <small>Les utilisateurs que vous bloquez apparaîtront ici.</small>
+        </div>
+
+      <% } %>
+
+    </div>
+  </div>
+
+  <script src="/js/profile-blocked.js"></script>
+  <script src="/js/theme.js"></script>
+</body>
+</html>

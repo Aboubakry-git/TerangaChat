@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <%- include('../partials/head', { title: 'Profil' }) %>
+  <link rel="stylesheet" href="/css/whatsapp.css">
+</head>
+<body class="profile-body">
+
+  <div class="profile-container">
+
+    <div class="profile-header">
+      <a href="/chat" class="back-btn" aria-label="Retour">
+        <i class="fas fa-arrow-left"></i> Retour
+      </a>
+      <h1>Profil</h1>
+    </div>
+
+    <% if (error) { %>
+      <div class="alert alert-error"><i class="fas fa-exclamation-circle"></i> <%= error %></div>
+    <% } %>
+    <% if (success) { %>
+      <div class="alert alert-success"><i class="fas fa-check-circle"></i> <%= success %></div>
+    <% } %>
+
+    <div class="profile-card">
+
+      <form action="/profile" method="POST" enctype="multipart/form-data" id="profileForm" class="profile-form">
+        <input type="file" name="avatar" id="avatarInput" accept="image/*" hidden>
+
+        <div class="avatar-edit-wrap" role="button" tabindex="0" aria-label="Changer la photo de profil">
+          <% if (profile.avatar_url) { %>
+            <img src="<%= profile.avatar_url %>" alt="Avatar" class="avatar-edit-img">
+          <% } else { %>
+            <div class="avatar-placeholder avatar-edit-img">
+              <%= (profile.username || '?').substring(0,2).toUpperCase() %>
+            </div>
+          <% } %>
+          <div class="avatar-edit-overlay">
+            <i class="fas fa-camera"></i>
+            <span>Changer la photo</span>
+          </div>
+        </div>
+
+        <div class="profile-name-block">
+          <h2 data-username="<%= profile.username %>"><%= profile.full_name || profile.username %></h2>
+          <p class="profile-username">@<%= profile.username %></p>
+        </div>
+
+        <div class="profile-rows">
+
+          <div class="profile-row" data-field="fullName" data-value="<%= profile.full_name || '' %>">
+            <i class="fas fa-id-card profile-row-icon"></i>
+            <div class="profile-row-content">
+              <span class="profile-row-label">Nom complet</span>
+              <span class="profile-row-value"><%= profile.full_name || 'Non défini' %></span>
+            </div>
+            <i class="fas fa-pen profile-row-edit"></i>
+          </div>
+
+          <div class="profile-row" data-field="statusText" data-value="<%= profile.status_text || '' %>">
+            <i class="fas fa-info-circle profile-row-icon"></i>
+            <div class="profile-row-content">
+              <span class="profile-row-label">Statut</span>
+              <span class="profile-row-value"><%= profile.status_text || 'Ajouter un statut' %></span>
+            </div>
+            <i class="fas fa-pen profile-row-edit"></i>
+          </div>
+
+          <div class="profile-row profile-row-readonly">
+            <i class="fas fa-envelope profile-row-icon"></i>
+            <div class="profile-row-content">
+              <span class="profile-row-label">Email</span>
+              <span class="profile-row-value"><%= profile.email %></span>
+            </div>
+          </div>
+
+          <div class="profile-row profile-row-readonly">
+            <i class="fas fa-at profile-row-icon"></i>
+            <div class="profile-row-content">
+              <span class="profile-row-label">Nom d'utilisateur</span>
+              <span class="profile-row-value">@<%= profile.username %></span>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="profile-toggles">
+          <div class="profile-toggle" data-toggle="hideOnline">
+            <div class="profile-toggle-text">
+              <span class="profile-toggle-title">Masquer mon statut en ligne</span>
+              <span class="profile-toggle-sub">Personne ne verra quand vous êtes connecté</span>
+            </div>
+            <div class="switch <%= profile.hide_online ? 'on' : '' %>" id="switch-hideOnline"></div>
+            <input type="checkbox" name="hideOnline" id="hideOnline" <%= profile.hide_online ? 'checked' : '' %> hidden>
+          </div>
+
+          <div class="profile-toggle" data-toggle="hideLastSeen">
+            <div class="profile-toggle-text">
+              <span class="profile-toggle-title">Masquer ma dernière connexion</span>
+              <span class="profile-toggle-sub">Personne ne verra votre heure de dernière visite</span>
+            </div>
+            <div class="switch <%= profile.hide_last_seen ? 'on' : '' %>" id="switch-hideLastSeen"></div>
+            <input type="checkbox" name="hideLastSeen" id="hideLastSeen" <%= profile.hide_last_seen ? 'checked' : '' %> hidden>
+          </div>
+        </div>
+
+        <input type="hidden" name="fullName" id="input-fullName" value="<%= profile.full_name || '' %>">
+        <input type="hidden" name="statusText" id="input-statusText" value="<%= profile.status_text || '' %>">
+
+        <button type="submit" class="btn btn-primary btn-block profile-save-btn">
+          <i class="fas fa-check"></i> Enregistrer
+        </button>
+      </form>
+
+      <div class="profile-links">
+        <a href="/profile/blocked" class="profile-link">
+          <i class="fas fa-ban"></i>
+          <span>Utilisateurs bloqués</span>
+          <i class="fas fa-chevron-right profile-link-arrow"></i>
+        </a>
+        <a href="/logout" class="profile-link danger">
+          <i class="fas fa-sign-out-alt"></i>
+          <span>Déconnexion</span>
+        </a>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- MODALE (sans onclick) -->
+  <div class="modal-overlay" id="editModal" aria-hidden="true">
+    <div class="modal-edit" role="dialog" aria-labelledby="editModalTitle">
+      <h3 id="editModalTitle">Modifier</h3>
+      <input type="text" id="editModalInput" autocomplete="off">
+      <div class="modal-edit-actions">
+        <button type="button" class="btn btn-outline" id="editModalCancel">Annuler</button>
+        <button type="button" class="btn btn-primary" id="editModalSave">Enregistrer</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/profile.js"></script>
+  <script src="/js/theme.js"></script>
+</body>
+</html>
