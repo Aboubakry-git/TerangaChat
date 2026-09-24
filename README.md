@@ -71,12 +71,7 @@ cqlsh 127.0.0.1 9042 -f schema.cql
 # 3. Configurer l'environnement
 cp .env.example .env
 nano .env
-# → Remplir SESSION_SECRET, JWT_SECRET et les identifiants Cassandra
-
-# 4. Générer un secret (pour SESSION_SECRET et JWT_SECRET)
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-
-# 5. Installer les dépendances
+# 4. Installer les dépendances
 npm install
 
 # 6. Lancer l'application
