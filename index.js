@@ -118,6 +118,7 @@ const profileRoutes = require('./routes/profile');
 const apiRoutes = require('./routes/api');
 const storiesRoutes = require('./routes/stories');
 const { startStoriesCleanupJob } = require('./jobs/storiesCleanup');
+const { ensureStoriesSchema } = require('./jobs/ensureStoriesSchema');
 
 // authLimiter uniquement sur POST sensibles
 app.use((req, res, next) => {
@@ -168,10 +169,17 @@ fs.mkdirSync(path.join(uploadDir, 'avatars'), { recursive: true });
 fs.mkdirSync(path.join(uploadDir, 'files'), { recursive: true });
 fs.mkdirSync(path.join(uploadDir, 'stories'), { recursive: true });
 
-startStoriesCleanupJob();
+(async () => {
+  try {
+    await ensureStoriesSchema();
+  } catch (err) {
+    console.error('Impossible d\'initialiser le schéma stories:', err.message);
+  }
+  startStoriesCleanupJob();
 
-server.listen(config.port, () => {
-  const proto = USE_HTTPS ? 'https' : 'http';
-  console.log(`🚀 Server running on ${proto}://localhost:${config.port}`);
-  console.log(`📡 PeerJS mounted at ${proto}://localhost:${config.port}${peerPath}`);
-});
+  server.listen(config.port, () => {
+    const proto = USE_HTTPS ? 'https' : 'http';
+    console.log(`🚀 Server running on ${proto}://localhost:${config.port}`);
+    console.log(`📡 PeerJS mounted at ${proto}://localhost:${config.port}${peerPath}`);
+  });
+})();

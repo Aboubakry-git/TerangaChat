@@ -63,6 +63,7 @@ socket.on('message:receive', (data) => {
       socket.emit('message:read', { conversationId: data.conversationId, messageId: data.messageId });
     }
   }
+  updateConversationPreview(data);
 });
 
 socket.on('message:edited', (data) => {
@@ -1317,6 +1318,90 @@ function renderUserProfileBody(user) {
       }
     });
   }
+}
+
+function formatSidebarPreview(data) {
+  if (!data) return { text: 'Aucun message', empty: true };
+  if (data.isDeleted || data.deleted) {
+    return {
+      text: data.senderId === currentUserId ? 'Vous : Ce message a été supprimé' : 'Ce message a été supprimé',
+      empty: false,
+    };
+  }
+  let text;
+  switch (data.messageType || data.type) {
+    case 'image':
+      text = '📷 Photo';
+      break;
+    case 'video':
+      text = '🎥 Vidéo';
+      break;
+    case 'file':
+      text = `📎 ${data.fileName || data.file_name || 'Fichier'}`;
+      break;
+    case 'voice':
+      text = '🎤 Message vocal';
+      break;
+    case 'system':
+      text = (data.content || '').slice(0, 40);
+      break;
+    default:
+      text = (data.content || '').slice(0, 40);
+      break;
+  }
+  if (data.senderId === currentUserId && (data.messageType || data.type) !== 'system') {
+    text = `Vous : ${text}`;
+  }
+  return { text: text || 'Aucun message', empty: false };
+}
+
+function updateConversationPreview(data) {
+  const convId = data.conversationId;
+  if (!convId) return;
+  const item = document.querySelector(`.conversation-item[data-id="${convId}"]`);
+  if (!item) return;
+  const preview = formatSidebarPreview(data);
+  const previewEl = item.querySelector('.conv-preview');
+  if (previewEl) {
+    previewEl.textContent = preview.text;
+    previewEl.classList.toggle('conv-preview--empty', preview.empty);
+  }
+  const timeEl = item.querySelector('.conv-time');
+  if (timeEl) {
+    const d = data.createdAt ? new Date(data.createdAt) : new Date();
+    timeEl.textContent = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    timeEl.setAttribute('datetime', d.toISOString());
+  }
+  // Remonter la conversation en tête de liste
+  const list = item.parentElement;
+  if (list && list.firstElementChild !== item) {
+    list.insertBefore(item, list.firstElementChild);
+  }
+}
+
+// ==================== STORIES (ouvrir le compositeur) ====================
+function openStoryComposerModal() {
+  if (typeof window.openStoryComposer === 'function') {
+    window.openStoryComposer();
+    return;
+  }
+  const modal = document.getElementById('storyComposerModal');
+  if (modal) modal.style.display = 'flex';
+}
+
+document.querySelectorAll('[data-action="add-story"]').forEach((el) => {
+  el.addEventListener('click', openStoryComposerModal);
+  el.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      openStoryComposerModal();
+    }
+  });
+});
+
+const statusHeaderBtn = document.getElementById('statusHeaderBtn');
+if (statusHeaderBtn) {
+  statusHeaderBtn.addEventListener('click', openStoryComposerModal);
 }
 
 const chatHeaderInfo = document.getElementById('chatHeaderInfo');

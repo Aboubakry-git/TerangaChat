@@ -9,17 +9,21 @@
     <!-- Sidebar -->
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-header">
-        <a href="/profile" class="sidebar-user" title="Mon profil">
-          <div class="sidebar-user-avatar">
-            <% if (user.avatar_url) { %>
-              <img src="<%= user.avatar_url %>" alt="Photo de profil">
-            <% } else { %>
-              <div class="avatar-placeholder"><%= getInitials(user.username || '?') %></div>
-            <% } %>
+        <div class="sidebar-header-user">
+          <a href="/profile" class="sidebar-user" title="Mon profil">
+            <div class="sidebar-user-avatar">
+              <% if (user.avatar_url) { %>
+                <img src="<%= user.avatar_url %>" alt="Photo de profil">
+              <% } else { %>
+                <div class="avatar-placeholder"><%= getInitials(user.username || '?') %></div>
+              <% } %>
+            </div>
+          </a>
+          <div class="sidebar-user-info">
+            <span class="sidebar-user-name"><%= user.full_name || user.username %></span>
+            <span class="sidebar-user-status">En ligne</span>
           </div>
-          <span class="sr-only">Mon profil</span>
-        </a>
-        <span class="sidebar-app-name">TerangaChat</span>
+        </div>
         <div class="sidebar-actions">
           <button class="icon-btn" type="button" id="statusHeaderBtn" title="Statut"><i class="fas fa-circle-notch"></i></button>
           <button class="icon-btn" id="newChatBtn" title="Nouvelle discussion"><i class="fas fa-edit"></i></button>
@@ -38,22 +42,19 @@
       </div>
 
       <!-- Statuts 24h -->
-      <div class="stories-bar" id="storiesBar" aria-label="Statuts">
-        <div class="stories-track" id="storiesTrack">
-          <button type="button" class="story-bubble story-bubble-add" id="addStoryBtn" title="Ajouter un statut">
-            <span class="story-ring">
-              <span class="story-avatar">
-                <% if (user.avatar_url) { %>
-                  <img src="<%= user.avatar_url %>" alt="">
-                <% } else { %>
-                  <span class="avatar-placeholder"><%= getInitials(user.username || '?') %></span>
-                <% } %>
-                <span class="story-add-badge" aria-hidden="true"><i class="fas fa-plus"></i></span>
-              </span>
-            </span>
-            <span class="story-label">Mon statut</span>
-          </button>
+      <div class="sidebar-stories" id="storiesBar" aria-label="Statuts">
+        <div class="story-item story-add" id="addStoryBtn" data-action="add-story" role="button" tabindex="0" title="Ajouter un statut">
+          <div class="story-circle">
+            <% if (user.avatar_url) { %>
+              <img src="<%= user.avatar_url %>" alt="Mon statut">
+            <% } else { %>
+              <span class="story-avatar-fallback"><%= getInitials(user.username || '?') %></span>
+            <% } %>
+            <span class="story-plus" aria-hidden="true"><i class="fas fa-plus"></i></span>
+          </div>
+          <span class="story-label">Mon statut</span>
         </div>
+        <!-- Autres stories des contacts (futur) -->
       </div>
 
       <div class="sidebar-search">
@@ -74,23 +75,29 @@
         <div class="tab-content active" id="tab-chats">
           <% if (conversations && conversations.length > 0) { %>
             <% conversations.forEach(function(conv) { %>
+              <%
+                const previewAt = conv.last_message_at || conv.created_at;
+                const previewDate = previewAt ? new Date(previewAt) : new Date();
+                const previewText = conv.preview_text || 'Aucun message';
+                const previewEmpty = !conv.last_message;
+              %>
               <a href="/chat/<%= conv.conversation_id %>" class="conversation-item <%= activeConversation && activeConversation.conversation_id.toString() === conv.conversation_id.toString() ? 'active' : '' %>" data-id="<%= conv.conversation_id %>" data-type="<%= conv.type %>" data-unread="false" data-favorite="false">
                 <div class="conv-avatar">
                   <% if (conv.avatar_url) { %>
                     <img src="<%= conv.avatar_url %>" alt="">
                   <% } else { %>
                     <div class="avatar-placeholder">
-                      <%= conv.type === 'group' ? '<i class="fas fa-users"></i>' : getInitials(conv.name || '?') %>
+                      <% if (conv.type === 'group') { %><i class="fas fa-users"></i><% } else { %><%= getInitials(conv.name || '?') %><% } %>
                     </div>
                   <% } %>
                 </div>
                 <div class="conv-info">
                   <div class="conv-top">
                     <span class="conv-name"><%= conv.type === 'group' ? (conv.name || 'Groupe') : (conv.name || 'Discussion privée') %></span>
-                    <time class="conv-time" datetime="<%= new Date(conv.created_at).toISOString() %>"><%= new Date(conv.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) %></time>
+                    <time class="conv-time" datetime="<%= previewDate.toISOString() %>"><%= previewDate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) %></time>
                   </div>
                   <div class="conv-bottom">
-                    <span class="conv-preview">Appuyez pour ouvrir</span>
+                    <span class="conv-preview<%= previewEmpty ? ' conv-preview--empty' : '' %>"><%= previewText %></span>
                   </div>
                 </div>
               </a>
@@ -135,7 +142,7 @@
               <% } %>
             </div>
             <div class="chat-header-text">
-              <h2><%= activeConversation.type === 'group' ? (activeConversation.name || 'Groupe') : (activeConversation.name || 'Discussion privée') %></h2>
+              <h2 id="chatHeaderName"><%= activeConversation.type === 'group' ? (activeConversation.name || 'Groupe') : (activeConversation.name || 'Discussion privée') %></h2>
               <span class="chat-header-status" id="presenceStatus">
                 <% if (activeConversation.type === 'group') { %>
                   <%= activeMembers.length %> membres

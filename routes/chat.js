@@ -18,6 +18,49 @@ function aggregateReactions(rows, currentUserId) {
   return Array.from(byEmoji.values());
 }
 
+function formatConversationPreview(msg, userId) {
+  if (!msg) {
+    return { text: 'Aucun message', empty: true, at: null };
+  }
+
+  let text;
+  if (msg.is_deleted) {
+    text = 'Ce message a été supprimé';
+  } else {
+    switch (msg.message_type) {
+      case 'image':
+        text = '📷 Photo';
+        break;
+      case 'video':
+        text = '🎥 Vidéo';
+        break;
+      case 'file':
+        text = `📎 ${msg.file_name || 'Fichier'}`;
+        break;
+      case 'voice':
+        text = '🎤 Message vocal';
+        break;
+      case 'system':
+        text = (msg.content || '').slice(0, 40);
+        break;
+      default:
+        text = (msg.content || '').slice(0, 40);
+        break;
+    }
+  }
+
+  const isMine = msg.sender_id && msg.sender_id.toString() === userId.toString();
+  if (isMine && msg.message_type !== 'system') {
+    text = `Vous : ${text}`;
+  }
+
+  return {
+    text: text || 'Aucun message',
+    empty: false,
+    at: msg.created_at || null,
+  };
+}
+
 async function loadConversationsWithDetails(userId) {
   const conversationsResult = await execute(
     'SELECT conversation_id FROM user_conversations WHERE user_id = ?',
@@ -48,14 +91,39 @@ async function loadConversationsWithDetails(userId) {
           [otherMember.user_id]
         );
         if (other.rows[0]) {
-          conv.name = other.rows[0].username;
+          conv.name = other.rows[0].full_name || other.rows[0].username;
           conv.avatar_url = other.rows[0].avatar_url;
           conv.full_name = other.rows[0].full_name;
         }
       }
     }
+
+    // Dernier message (clustering message_id DESC → LIMIT 1 = plus récent)
+    try {
+      const lastMsgResult = await execute(
+        `SELECT sender_id, content, message_type, file_name, is_deleted, created_at
+         FROM messages WHERE conversation_id = ? LIMIT 1`,
+        [cid]
+      );
+      const lastMsg = lastMsgResult.rows[0] || null;
+      const preview = formatConversationPreview(lastMsg, userId);
+      conv.last_message = lastMsg;
+      conv.preview_text = preview.text;
+      conv.last_message_at = preview.at || conv.created_at;
+    } catch (err) {
+      conv.last_message = null;
+      conv.preview_text = 'Aucun message';
+      conv.last_message_at = conv.created_at;
+    }
+
     conversations.push(conv);
   }
+
+  conversations.sort((a, b) => {
+    const ta = new Date(a.last_message_at || a.created_at || 0).getTime();
+    const tb = new Date(b.last_message_at || b.created_at || 0).getTime();
+    return tb - ta;
+  });
 
   return conversations;
 }

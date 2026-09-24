@@ -11,11 +11,19 @@ const STORY_MAX_BYTES = 50 * 1024 * 1024;
 const DEFAULT_IMAGE_DURATION = 5;
 const TEXT_DURATION = 8;
 
+const storiesRoot = path.isAbsolute(config.uploadDir)
+  ? path.join(config.uploadDir, 'stories')
+  : path.join(__dirname, '..', config.uploadDir, 'stories');
+
 const storyStorage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const dir = path.join(config.uploadDir, 'stories', String(req.userId));
-    fs.mkdirSync(dir, { recursive: true });
-    cb(null, dir);
+    const dir = path.join(storiesRoot, String(req.userId));
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      cb(null, dir);
+    } catch (e) {
+      cb(e);
+    }
   },
   filename: (req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase() || '.bin';
@@ -41,7 +49,10 @@ function publicStoryUrl(userId, filename) {
 function unlinkStoryFile(mediaUrl) {
   if (!mediaUrl) return;
   const rel = String(mediaUrl).replace(/^\/uploads\//, '');
-  const filePath = path.join(config.uploadDir, rel);
+  const uploadsRoot = path.isAbsolute(config.uploadDir)
+    ? config.uploadDir
+    : path.join(__dirname, '..', config.uploadDir);
+  const filePath = path.join(uploadsRoot, rel);
   fs.unlink(filePath, () => {});
 }
 
