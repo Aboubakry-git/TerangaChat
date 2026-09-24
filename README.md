@@ -71,6 +71,7 @@ cqlsh 127.0.0.1 9042 -f schema.cql
 # 3. Configurer l'environnement
 cp .env.example .env
 nano .env
+
 # 4. Installer les dépendances
 npm install
 
