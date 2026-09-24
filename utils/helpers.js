@@ -86,6 +86,49 @@ function escapeHtml(text) {
   return String(text).replace(/[&<>"']/g, (m) => map[m]);
 }
 
+/** Relative last-seen label (FR), e.g. "il y a 5 min". */
+function formatLastSeen(date) {
+  if (!date) return '';
+  const d = new Date(date);
+  if (Number.isNaN(d.getTime())) return '';
+  const diffMs = Date.now() - d.getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return "à l'instant";
+  if (mins < 60) return `il y a ${mins} min`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `il y a ${hours} h`;
+  const days = Math.floor(hours / 24);
+  if (days === 1) return `hier à ${formatTime(d)}`;
+  if (days < 7) return `il y a ${days} j`;
+  return formatDate(d);
+}
+
+/**
+ * Sanitize presence for public view (respects hide_online / hide_last_seen).
+ * Returns { isOnline, lastSeen, label }.
+ */
+function buildPublicPresence(user) {
+  if (!user) {
+    return { isOnline: false, lastSeen: null, label: '' };
+  }
+  const hideOnline = !!user.hide_online;
+  const hideLastSeen = !!user.hide_last_seen;
+  const actuallyOnline = !!user.is_online;
+  const isOnline = actuallyOnline && !hideOnline;
+  const lastSeen = hideLastSeen ? null : (user.last_seen || null);
+
+  let label = '';
+  if (isOnline) {
+    label = 'En ligne';
+  } else if (lastSeen) {
+    label = `Vu ${formatLastSeen(lastSeen)}`;
+  } else if (!hideOnline || !hideLastSeen) {
+    label = 'Hors ligne';
+  }
+
+  return { isOnline, lastSeen, label };
+}
+
 module.exports = {
   generateId,
   generateTimeUUID,
@@ -94,6 +137,8 @@ module.exports = {
   formatDateTime,
   formatDuration,
   formatFileSize,
+  formatLastSeen,
+  buildPublicPresence,
   getInitials,
   validatePassword,
   validateEmail,

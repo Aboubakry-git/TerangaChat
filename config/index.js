@@ -10,6 +10,10 @@ module.exports = {
   maxFileSize: parseInt(process.env.MAX_FILE_SIZE || '104857600', 10),
   peerJsPort: parseInt(process.env.PEERJS_PORT || '9000', 10),
   peerJsPath: process.env.PEERJS_PATH || '/peerjs',
+  // TURN/STUN — nécessaire quand les candidats host mDNS échouent sur le LAN
+  turnUrls: (process.env.TURN_URLS || '').split(',').map((s) => s.trim()).filter(Boolean),
+  turnUsername: process.env.TURN_USERNAME || '',
+  turnCredential: process.env.TURN_CREDENTIAL || '',
   smtp: {
     host: process.env.SMTP_HOST || '',
     port: parseInt(process.env.SMTP_PORT || '587', 10),

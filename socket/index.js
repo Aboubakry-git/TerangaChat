@@ -1,5 +1,25 @@
 const { execute, batch } = require('../config/database');
-const { generateId, generateTimeUUID, escapeHtml } = require('../utils/helpers');
+const { generateId, generateTimeUUID, escapeHtml, buildPublicPresence } = require('../utils/helpers');
+
+async function emitPresence(io, userId, isOnline) {
+  const uid = userId.toString();
+  const result = await execute(
+    'SELECT is_online, last_seen, hide_online, hide_last_seen FROM users WHERE user_id = ?',
+    [uid]
+  );
+  const row = result.rows[0] || {};
+  const presence = buildPublicPresence({
+    ...row,
+    is_online: isOnline,
+    last_seen: isOnline ? row.last_seen : (row.last_seen || new Date()),
+  });
+  io.emit('presence:update', {
+    userId: uid,
+    isOnline: presence.isOnline,
+    lastSeen: presence.lastSeen,
+    label: presence.label,
+  });
+}
 
 function setupSocket(io) {
   const userSockets = new Map(); // userId (string) -> socket.id
@@ -13,9 +33,10 @@ function setupSocket(io) {
       socket.userId = uid;
       userSockets.set(uid, socket.id);
       userSocketIds.set(socket.id, uid);
+      socket.join(`user:${uid}`);
 
       await execute('UPDATE users SET is_online = true, last_seen = ? WHERE user_id = ?', [new Date(), uid]);
-      io.emit('presence:update', { userId: uid, isOnline: true });
+      await emitPresence(io, uid, true);
     });
 
     socket.on('conversation:open', async (conversationId) => {
@@ -205,71 +226,398 @@ function setupSocket(io) {
     });
 
     // ==================== CALLS ====================
+    // Architecture:
+    // - Signalisation Socket.IO via rooms user:<id> et call:<callId>
+    // - Média WebRTC via PeerJS (P2P 1-à-1, mesh groupe ≤5)
+    // - Persistance: call_sessions + call_participants (+ call_history legacy)
+
+    const MAX_GROUP_CALL_PARTICIPANTS = 5;
+    if (!io.activeCalls) io.activeCalls = new Map();
+
+    async function getCallerMeta(userId) {
+      const r = await execute('SELECT username, full_name, avatar_url FROM users WHERE user_id = ?', [userId]);
+      const u = r.rows[0] || {};
+      return {
+        callerId: userId.toString(),
+        callerName: u.full_name || u.username || 'Utilisateur',
+        callerAvatar: u.avatar_url || null,
+      };
+    }
+
+    function listActiveParticipants(call) {
+      return Array.from(call.participants.entries())
+        .filter(([, p]) => p.status === 'joined' || p.status === 'ringing')
+        .map(([userId, p]) => ({
+          userId,
+          peerId: p.peerId,
+          status: p.status,
+          username: p.username,
+        }));
+    }
+
     socket.on('call:initiate', async (data) => {
       try {
-        const { conversationId, callType, peerId } = data;
-        const callId = generateId();
-        const now = new Date();
-
-        await execute(
-          'INSERT INTO call_history (call_id, conversation_id, caller_id, caller_peer_id, call_type, status, duration, started_at, ended_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          [callId, conversationId, socket.userId, peerId, callType, 'initiated', 0, now, null, now]
-        );
-
-        await execute(
-          'INSERT INTO call_history_by_conversation (conversation_id, created_at, call_id, caller_id, call_type, status, duration) VALUES (?, ?, ?, ?, ?, ?, ?)',
-          [conversationId, now, callId, socket.userId, callType, 'initiated', 0]
-        );
-
-        const membersResult = await execute('SELECT user_id FROM conversation_members WHERE conversation_id = ?', [conversationId]);
-        for (const member of membersResult.rows) {
-          const memberId = member.user_id.toString();
-          if (memberId !== socket.userId) {
-            await execute(
-              'INSERT INTO call_history_by_user (user_id, created_at, call_id, conversation_id, caller_id, call_type, status, duration) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-              [memberId, now, callId, conversationId, socket.userId, callType, 'initiated', 0]
-            );
-            const targetSocketId = userSockets.get(memberId);
-            if (targetSocketId) {
-              io.to(targetSocketId).emit('call:incoming', {
-                callId,
-                conversationId,
-                callerId: socket.userId,
-                callType,
-                peerId,
-              });
-            }
-          }
+        if (!socket.userId) {
+          socket.emit('call:error', { message: 'Session non initialisée — rechargez la page' });
+          return;
+        }
+        const { conversationId, callType, peerId } = data || {};
+        if (!conversationId || !peerId) {
+          socket.emit('call:error', { message: 'Données d\'appel invalides' });
+          return;
         }
 
-        socket.emit('call:created', { callId });
+        const memberCheck = await execute(
+          'SELECT user_id FROM conversation_members WHERE conversation_id = ? AND user_id = ?',
+          [conversationId, socket.userId]
+        );
+        if (memberCheck.rows.length === 0) {
+          socket.emit('call:error', { message: 'Vous n\'êtes pas membre de cette conversation' });
+          return;
+        }
+
+        const convResult = await execute(
+          'SELECT type, name FROM conversations WHERE conversation_id = ?',
+          [conversationId]
+        );
+        const conv = convResult.rows[0];
+        if (!conv) {
+          socket.emit('call:error', { message: 'Conversation introuvable' });
+          return;
+        }
+
+        const isGroup = conv.type === 'group';
+        const callId = generateId();
+        const now = new Date();
+        const meta = await getCallerMeta(socket.userId);
+
+        // Persistance best-effort — ne doit pas bloquer la signalisation
+        await execute(
+          'INSERT INTO call_sessions (call_id, conversation_id, initiator_id, call_type, status, started_at, ended_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          [callId, conversationId, socket.userId, callType || 'audio', 'ringing', now, null]
+        ).catch((err) => console.warn('call_sessions insert:', err.message));
+        await execute(
+          'INSERT INTO call_participants (call_id, user_id, joined_at, left_at, status) VALUES (?, ?, ?, ?, ?)',
+          [callId, socket.userId, now, null, 'joined']
+        ).catch((err) => console.warn('call_participants insert:', err.message));
+        await execute(
+          'INSERT INTO call_history (call_id, conversation_id, caller_id, caller_peer_id, call_type, status, duration, started_at, ended_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [callId, conversationId, socket.userId, peerId, callType || 'audio', 'initiated', 0, now, null, now]
+        ).catch(() => {});
+
+        const call = {
+          callId: callId.toString(),
+          conversationId: conversationId.toString(),
+          initiatorId: socket.userId,
+          callType: callType || 'audio',
+          isGroup,
+          groupName: conv.name || 'Groupe',
+          status: 'ringing',
+          participants: new Map(),
+          createdAt: now,
+        };
+        call.participants.set(socket.userId, {
+          peerId,
+          status: 'joined',
+          username: meta.callerName,
+        });
+        io.activeCalls.set(call.callId, call);
+        socket.join(`call:${call.callId}`);
+
+        const membersResult = await execute(
+          'SELECT user_id FROM conversation_members WHERE conversation_id = ?',
+          [conversationId]
+        );
+
+        const payload = {
+          callId: call.callId,
+          conversationId: call.conversationId,
+          callType: call.callType,
+          isGroup,
+          groupName: call.groupName,
+          peerId,
+          ...meta,
+        };
+
+        let notified = 0;
+        for (const member of membersResult.rows) {
+          const memberId = member.user_id.toString();
+          if (memberId === socket.userId) continue;
+
+          await execute(
+            'INSERT INTO call_participants (call_id, user_id, joined_at, left_at, status) VALUES (?, ?, ?, ?, ?)',
+            [callId, memberId, null, null, 'invited']
+          ).catch(() => {});
+
+          if (isGroup) {
+            io.to(`user:${memberId}`).emit('call:group-invite', {
+              ...payload,
+              participantCount: 1,
+            });
+          } else {
+            io.to(`user:${memberId}`).emit('call:incoming', payload);
+          }
+          notified += 1;
+        }
+
+        if (!isGroup && notified === 0) {
+          socket.emit('call:error', { message: 'Aucun correspondant dans cette conversation' });
+          io.activeCalls.delete(call.callId);
+          return;
+        }
+
+        socket.emit('call:created', {
+          callId: call.callId,
+          conversationId: call.conversationId,
+          callType: call.callType,
+          isGroup,
+        });
       } catch (err) {
         console.error('call:initiate error:', err);
+        socket.emit('call:error', { message: "Impossible de démarrer l'appel" });
       }
     });
 
-    socket.on('call:accept', (data) => {
-      const { callId, conversationId, peerId } = data;
-      io.to(`conv:${conversationId}`).emit('call:accepted', { callId, peerId, userId: socket.userId });
-      execute('UPDATE call_history SET status = ? WHERE call_id = ?', ['answered', callId]).catch(() => {});
+    socket.on('call:accept', async (data) => {
+      try {
+        if (!socket.userId) return;
+        const { callId, peerId } = data || {};
+        const call = io.activeCalls.get(callId);
+        if (!call || call.status === 'ended') {
+          socket.emit('call:error', { message: 'Appel terminé ou introuvable' });
+          return;
+        }
+        if (call.isGroup) {
+          socket.emit('call:error', { message: 'Utilisez call:join pour un appel de groupe' });
+          return;
+        }
+
+        const now = new Date();
+        const meta = await getCallerMeta(socket.userId);
+        call.status = 'active';
+        call.participants.set(socket.userId, {
+          peerId,
+          status: 'joined',
+          username: meta.callerName,
+        });
+        socket.join(`call:${callId}`);
+
+        await execute(
+          'INSERT INTO call_participants (call_id, user_id, joined_at, left_at, status) VALUES (?, ?, ?, ?, ?)',
+          [callId, socket.userId, now, null, 'joined']
+        ).catch(() => {});
+        await execute('UPDATE call_sessions SET status = ? WHERE call_id = ?', ['active', callId]).catch(() => {});
+        await execute('UPDATE call_history SET status = ? WHERE call_id = ?', ['answered', callId]).catch(() => {});
+
+        io.to(`user:${call.initiatorId}`).emit('call:accepted', {
+          callId,
+          conversationId: call.conversationId,
+          peerId,
+          userId: socket.userId,
+          username: meta.callerName,
+        });
+        io.to(`call:${callId}`).emit('call:participant-joined', {
+          callId,
+          userId: socket.userId,
+          peerId,
+          username: meta.callerName,
+          participants: listActiveParticipants(call),
+        });
+      } catch (err) {
+        console.error('call:accept error:', err);
+      }
     });
 
-    socket.on('call:reject', (data) => {
-      const { callId, conversationId } = data;
-      io.to(`conv:${conversationId}`).emit('call:rejected', { callId, userId: socket.userId });
-      execute('UPDATE call_history SET status = ? WHERE call_id = ?', ['declined', callId]).catch(() => {});
+    socket.on('call:reject', async (data) => {
+      try {
+        if (!socket.userId) return;
+        const { callId } = data || {};
+        const call = io.activeCalls.get(callId);
+        if (!call) return;
+
+        await execute(
+          'INSERT INTO call_participants (call_id, user_id, joined_at, left_at, status) VALUES (?, ?, ?, ?, ?)',
+          [callId, socket.userId, null, new Date(), 'declined']
+        ).catch(() => {});
+
+        if (!call.isGroup) {
+          call.status = 'ended';
+          io.activeCalls.delete(callId);
+          await execute('UPDATE call_sessions SET status = ?, ended_at = ? WHERE call_id = ?',
+            ['declined', new Date(), callId]).catch(() => {});
+          await execute('UPDATE call_history SET status = ? WHERE call_id = ?', ['declined', callId]).catch(() => {});
+          io.to(`user:${call.initiatorId}`).emit('call:rejected', {
+            callId,
+            userId: socket.userId,
+            conversationId: call.conversationId,
+          });
+        } else {
+          io.to(`user:${call.initiatorId}`).emit('call:invite-ignored', {
+            callId,
+            userId: socket.userId,
+          });
+        }
+      } catch (err) {
+        console.error('call:reject error:', err);
+      }
     });
 
-    socket.on('call:end', (data) => {
-      const { callId, conversationId, duration } = data;
-      io.to(`conv:${conversationId}`).emit('call:ended', { callId, userId: socket.userId });
-      execute('UPDATE call_history SET status = ?, duration = ?, ended_at = ? WHERE call_id = ?',
-        ['ended', duration || 0, new Date(), callId]).catch(() => {});
+    socket.on('call:join', async (data) => {
+      try {
+        if (!socket.userId) return;
+        const { callId, peerId } = data || {};
+        const call = io.activeCalls.get(callId);
+        if (!call || call.status === 'ended') {
+          socket.emit('call:error', { message: 'Appel terminé ou introuvable' });
+          return;
+        }
+
+        const joinedCount = Array.from(call.participants.values())
+          .filter((p) => p.status === 'joined').length;
+        if (joinedCount >= MAX_GROUP_CALL_PARTICIPANTS) {
+          socket.emit('call:error', {
+            message: `Les appels de groupe sont limités à ${MAX_GROUP_CALL_PARTICIPANTS} participants pour le moment`,
+            code: 'MAX_PARTICIPANTS',
+          });
+          return;
+        }
+
+        const now = new Date();
+        const meta = await getCallerMeta(socket.userId);
+        call.status = 'active';
+        call.participants.set(socket.userId, {
+          peerId,
+          status: 'joined',
+          username: meta.callerName,
+        });
+        socket.join(`call:${callId}`);
+
+        await execute(
+          'INSERT INTO call_participants (call_id, user_id, joined_at, left_at, status) VALUES (?, ?, ?, ?, ?)',
+          [callId, socket.userId, now, null, 'joined']
+        ).catch(() => {});
+        await execute('UPDATE call_sessions SET status = ? WHERE call_id = ?', ['active', callId]).catch(() => {});
+
+        const participants = listActiveParticipants(call);
+        socket.emit('call:peers', {
+          callId,
+          participants: participants.filter((p) => p.userId !== socket.userId),
+        });
+        socket.to(`call:${callId}`).emit('call:participant-joined', {
+          callId,
+          userId: socket.userId,
+          peerId,
+          username: meta.callerName,
+          participants,
+        });
+
+        const membersResult = await execute(
+          'SELECT user_id FROM conversation_members WHERE conversation_id = ?',
+          [call.conversationId]
+        );
+        for (const member of membersResult.rows) {
+          const memberId = member.user_id.toString();
+          if (call.participants.get(memberId)?.status === 'joined') continue;
+          io.to(`user:${memberId}`).emit('call:group-invite', {
+            callId: call.callId,
+            conversationId: call.conversationId,
+            callType: call.callType,
+            isGroup: true,
+            groupName: call.groupName,
+            participantCount: joinedCount + 1,
+            callerId: call.initiatorId,
+            callerName: call.groupName,
+          });
+        }
+      } catch (err) {
+        console.error('call:join error:', err);
+      }
     });
 
-    socket.on('call:missed', (data) => {
-      const { callId } = data;
-      execute('UPDATE call_history SET status = ? WHERE call_id = ?', ['missed', callId]).catch(() => {});
+    socket.on('call:missed', async (data) => {
+      try {
+        const { callId } = data || {};
+        const call = io.activeCalls.get(callId);
+        if (!call || call.isGroup) return;
+        call.status = 'ended';
+        io.activeCalls.delete(callId);
+        await execute('UPDATE call_sessions SET status = ?, ended_at = ? WHERE call_id = ?',
+          ['missed', new Date(), callId]).catch(() => {});
+        await execute('UPDATE call_history SET status = ? WHERE call_id = ?', ['missed', callId]).catch(() => {});
+        io.to(`user:${call.initiatorId}`).emit('call:missed', {
+          callId,
+          conversationId: call.conversationId,
+        });
+      } catch (err) {
+        console.error('call:missed error:', err);
+      }
+    });
+
+    socket.on('call:end', async (data) => {
+      try {
+        if (!socket.userId) return;
+        const { callId, duration } = data || {};
+        const call = io.activeCalls.get(callId);
+        const now = new Date();
+        if (!call) return;
+
+        if (call.isGroup) {
+          const part = call.participants.get(socket.userId);
+          if (part) part.status = 'left';
+          socket.leave(`call:${callId}`);
+          await execute(
+            'INSERT INTO call_participants (call_id, user_id, joined_at, left_at, status) VALUES (?, ?, ?, ?, ?)',
+            [callId, socket.userId, now, now, 'left']
+          ).catch(() => {});
+
+          io.to(`call:${callId}`).emit('call:participant-left', {
+            callId,
+            userId: socket.userId,
+            participants: listActiveParticipants(call),
+          });
+
+          const stillJoined = Array.from(call.participants.values()).filter((p) => p.status === 'joined');
+          if (stillJoined.length === 0 || socket.userId === call.initiatorId) {
+            call.status = 'ended';
+            io.activeCalls.delete(callId);
+            io.to(`call:${callId}`).emit('call:ended', {
+              callId,
+              userId: socket.userId,
+              conversationId: call.conversationId,
+            });
+            await execute('UPDATE call_sessions SET status = ?, ended_at = ? WHERE call_id = ?',
+              ['ended', now, callId]).catch(() => {});
+          }
+        } else {
+          call.status = 'ended';
+          io.activeCalls.delete(callId);
+          const endPayload = {
+            callId,
+            userId: socket.userId,
+            conversationId: call.conversationId,
+          };
+          io.to(`call:${callId}`).emit('call:ended', endPayload);
+          io.to(`user:${call.initiatorId}`).emit('call:ended', endPayload);
+          for (const [uid] of call.participants) {
+            if (uid !== socket.userId) io.to(`user:${uid}`).emit('call:ended', endPayload);
+          }
+          await execute('UPDATE call_sessions SET status = ?, ended_at = ? WHERE call_id = ?',
+            ['ended', now, callId]).catch(() => {});
+          await execute('UPDATE call_history SET status = ?, duration = ?, ended_at = ? WHERE call_id = ?',
+            ['ended', duration || 0, now, callId]).catch(() => {});
+        }
+      } catch (err) {
+        console.error('call:end error:', err);
+      }
+    });
+
+    socket.on('call:switch-audio', (data) => {
+      const { callId } = data || {};
+      if (!callId) return;
+      socket.to(`call:${callId}`).emit('call:switch-audio', {
+        callId,
+        userId: socket.userId,
+      });
     });
 
     // ==================== DISCONNECT ====================
@@ -278,8 +626,47 @@ function setupSocket(io) {
       if (userId) {
         userSockets.delete(userId);
         userSocketIds.delete(socket.id);
-        await execute('UPDATE users SET is_online = false, last_seen = ? WHERE user_id = ?', [new Date(), userId]);
-        io.emit('presence:update', { userId, isOnline: false, lastSeen: new Date() });
+        const now = new Date();
+        await execute('UPDATE users SET is_online = false, last_seen = ? WHERE user_id = ?', [now, userId]);
+        await emitPresence(io, userId, false);
+
+        // Quitter les appels actifs pour éviter les sessions fantômes
+        if (io.activeCalls) {
+          for (const [callId, call] of io.activeCalls.entries()) {
+            const part = call.participants.get(userId);
+            if (!part || (part.status !== 'joined' && part.status !== 'ringing')) continue;
+
+            part.status = 'left';
+            socket.leave(`call:${callId}`);
+
+            if (call.isGroup) {
+              io.to(`call:${callId}`).emit('call:participant-left', {
+                callId,
+                userId,
+                participants: listActiveParticipants(call),
+              });
+              const stillJoined = Array.from(call.participants.values()).filter((p) => p.status === 'joined');
+              if (stillJoined.length === 0 || userId === call.initiatorId) {
+                call.status = 'ended';
+                io.activeCalls.delete(callId);
+                io.to(`call:${callId}`).emit('call:ended', {
+                  callId,
+                  userId,
+                  conversationId: call.conversationId,
+                });
+              }
+            } else {
+              call.status = 'ended';
+              io.activeCalls.delete(callId);
+              const endPayload = { callId, userId, conversationId: call.conversationId };
+              io.to(`call:${callId}`).emit('call:ended', endPayload);
+              io.to(`user:${call.initiatorId}`).emit('call:ended', endPayload);
+              for (const [uid] of call.participants) {
+                if (uid !== userId) io.to(`user:${uid}`).emit('call:ended', endPayload);
+              }
+            }
+          }
+        }
       }
     });
   });

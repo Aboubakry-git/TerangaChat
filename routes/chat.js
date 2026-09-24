@@ -1,7 +1,22 @@
 const express = require('express');
 const router = express.Router();
 const { execute } = require('../config/database');
-const { getInitials } = require('../utils/helpers');
+const { getInitials, buildPublicPresence } = require('../utils/helpers');
+
+function aggregateReactions(rows, currentUserId) {
+  const byEmoji = new Map();
+  const uid = currentUserId.toString();
+  for (const row of rows) {
+    const emoji = row.emoji;
+    if (!byEmoji.has(emoji)) {
+      byEmoji.set(emoji, { emoji, count: 0, reactedByMe: false });
+    }
+    const entry = byEmoji.get(emoji);
+    entry.count += 1;
+    if (row.user_id.toString() === uid) entry.reactedByMe = true;
+  }
+  return Array.from(byEmoji.values());
+}
 
 async function loadConversationsWithDetails(userId) {
   const conversationsResult = await execute(
@@ -45,6 +60,19 @@ async function loadConversationsWithDetails(userId) {
   return conversations;
 }
 
+function emptyChatLocals(user) {
+  return {
+    conversations: [],
+    activeConversation: null,
+    messages: [],
+    activeMembers: [],
+    otherPeer: null,
+    currentUserRole: null,
+    getInitials,
+    user,
+  };
+}
+
 // GET /chat
 router.get('/', async (req, res) => {
   try {
@@ -56,19 +84,14 @@ router.get('/', async (req, res) => {
       activeConversation: null,
       messages: [],
       activeMembers: [],
+      otherPeer: null,
+      currentUserRole: null,
       getInitials,
       user: req.user,
     });
   } catch (err) {
     console.error('Chat index error:', err);
-    res.render('chat/index', {
-      conversations: [],
-      activeConversation: null,
-      messages: [],
-      activeMembers: [],
-      getInitials,
-      user: req.user,
-    });
+    res.render('chat/index', emptyChatLocals(req.user));
   }
 });
 
@@ -102,7 +125,9 @@ router.get('/:conversationId', async (req, res) => {
 
     for (let i = 0; i < memberIds.length; i++) {
       const r = await execute(
-        'SELECT user_id, username, full_name, avatar_url, is_online, last_seen FROM users WHERE user_id = ?',
+        `SELECT user_id, username, full_name, avatar_url, status_text,
+                is_online, last_seen, hide_online, hide_last_seen
+         FROM users WHERE user_id = ?`,
         [memberIds[i]]
       );
       if (r.rows[0]) {
@@ -110,13 +135,29 @@ router.get('/:conversationId', async (req, res) => {
       }
     }
 
+    let otherPeer = null;
+    let currentUserRole = null;
     // Résoudre le nom si conversation privée
     if (activeConversation.type === 'private') {
       const otherMember = members.find(m => m.user_id.toString() !== userId.toString());
       if (otherMember) {
-        activeConversation.name = otherMember.username;
+        activeConversation.name = otherMember.full_name || otherMember.username;
         activeConversation.avatar_url = otherMember.avatar_url;
+        const presence = buildPublicPresence(otherMember);
+        otherPeer = {
+          userId: otherMember.user_id.toString(),
+          username: otherMember.username,
+          fullName: otherMember.full_name,
+          avatarUrl: otherMember.avatar_url,
+          statusText: otherMember.status_text,
+          isOnline: presence.isOnline,
+          lastSeen: presence.lastSeen,
+          presenceLabel: presence.label,
+        };
       }
+    } else {
+      const me = members.find(m => m.user_id.toString() === userId.toString());
+      currentUserRole = me?.role || 'member';
     }
 
     const messagesResult = await execute(
@@ -135,6 +176,19 @@ router.get('/:conversationId', async (req, res) => {
     }
     messages.forEach(m => { m.sender_name = senderMap[m.sender_id.toString()] || 'Utilisateur'; });
 
+    // Load reactions for displayed messages
+    for (const msg of messages) {
+      try {
+        const reactResult = await execute(
+          'SELECT user_id, emoji FROM message_reactions WHERE message_id = ?',
+          [msg.message_id]
+        );
+        msg.reactions = aggregateReactions(reactResult.rows, userId);
+      } catch (err) {
+        msg.reactions = [];
+      }
+    }
+
     const conversations = await loadConversationsWithDetails(userId);
 
     await execute(
@@ -147,6 +201,8 @@ router.get('/:conversationId', async (req, res) => {
       activeConversation,
       messages,
       activeMembers: members,
+      otherPeer,
+      currentUserRole,
       getInitials,
       user: req.user,
     });

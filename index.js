@@ -7,7 +7,7 @@ const cookieParser = require('cookie-parser');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const { Server } = require('socket.io');
-const { PeerServer } = require('peer');
+const { ExpressPeerServer } = require('peer');
 const config = require('./config');
 const { authMiddleware, apiAuth } = require('./middleware/auth');
 const { setupSocket } = require('./socket');
@@ -38,21 +38,13 @@ if (USE_HTTPS) {
 
 const io = new Server(server, { maxHttpBufferSize: 1e8 });
 
-// ==================== PEERJS ====================
-// PeerJS doit aussi être en HTTPS si l'app est en HTTPS
-const peerServer = PeerServer({
-  port: config.peerJsPort,
-  path: config.peerJsPath,
-  ...(USE_HTTPS && fs.existsSync(path.join(__dirname, 'certs', 'key.pem')) ? {
-    ssl: {
-      key: fs.readFileSync(path.join(__dirname, 'certs', 'key.pem')),
-      cert: fs.readFileSync(path.join(__dirname, 'certs', 'cert.pem')),
-    },
-  } : {}),
-});
-
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
+// PeerJS same-origin (même port que l'app) — évite firewall / cert séparé sur :9000
+app.locals.peerJsPath = config.peerJsPath || '/peerjs';
+app.locals.turnUrls = config.turnUrls;
+app.locals.turnUsername = config.turnUsername;
+app.locals.turnCredential = config.turnCredential;
 
 // ==================== HELMET ====================
 app.use(helmet({
@@ -78,6 +70,21 @@ app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// ==================== PEERJS (même serveur HTTP/HTTPS) ====================
+const peerPath = config.peerJsPath || '/peerjs';
+const peerServer = ExpressPeerServer(server, {
+  path: '/',
+  allow_discovery: false,
+  proxied: true,
+});
+app.use(peerPath, peerServer);
+peerServer.on('connection', (client) => {
+  console.log('PeerJS connected:', client.getId());
+});
+peerServer.on('disconnect', (client) => {
+  console.log('PeerJS disconnected:', client.getId());
+});
 
 // ==================== RATE LIMITERS ====================
 const generalLimiter = rateLimit({
@@ -109,6 +116,8 @@ const authRoutes = require('./routes/auth');
 const chatRoutes = require('./routes/chat');
 const profileRoutes = require('./routes/profile');
 const apiRoutes = require('./routes/api');
+const storiesRoutes = require('./routes/stories');
+const { startStoriesCleanupJob } = require('./jobs/storiesCleanup');
 
 // authLimiter uniquement sur POST sensibles
 app.use((req, res, next) => {
@@ -123,6 +132,7 @@ app.use('/', authRoutes);
 app.use('/chat', authMiddleware, chatRoutes);
 app.use('/profile', authMiddleware, profileRoutes);
 app.use('/api', apiAuth, apiRoutes);
+app.use('/api/stories', apiAuth, storiesRoutes);
 
 app.get('/', (req, res) => {
   const token = req.cookies?.token;
@@ -151,13 +161,17 @@ app.use((err, req, res, next) => {
 });
 
 setupSocket(io);
+app.set('io', io);
 
 const uploadDir = path.join(__dirname, config.uploadDir);
 fs.mkdirSync(path.join(uploadDir, 'avatars'), { recursive: true });
 fs.mkdirSync(path.join(uploadDir, 'files'), { recursive: true });
+fs.mkdirSync(path.join(uploadDir, 'stories'), { recursive: true });
+
+startStoriesCleanupJob();
 
 server.listen(config.port, () => {
   const proto = USE_HTTPS ? 'https' : 'http';
   console.log(`🚀 Server running on ${proto}://localhost:${config.port}`);
-  console.log(`📡 PeerJS server running on port ${config.peerJsPort}`);
+  console.log(`📡 PeerJS mounted at ${proto}://localhost:${config.port}${peerPath}`);
 });

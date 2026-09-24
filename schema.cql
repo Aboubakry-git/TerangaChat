@@ -166,6 +166,27 @@ CREATE TABLE IF NOT EXISTS call_history_by_user (
     PRIMARY KEY (user_id, created_at)
 ) WITH CLUSTERING ORDER BY (created_at DESC);
 
+-- Sessions d'appel actives / historique enrichi (1-à-1 + groupe mesh)
+CREATE TABLE IF NOT EXISTS call_sessions (
+    call_id uuid,
+    conversation_id uuid,
+    initiator_id uuid,
+    call_type text,
+    status text,
+    started_at timestamp,
+    ended_at timestamp,
+    PRIMARY KEY (call_id)
+);
+
+CREATE TABLE IF NOT EXISTS call_participants (
+    call_id uuid,
+    user_id uuid,
+    joined_at timestamp,
+    left_at timestamp,
+    status text,
+    PRIMARY KEY (call_id, user_id)
+);
+
 -- ==================== NOTIFICATIONS ====================
 CREATE TABLE IF NOT EXISTS notifications (
     user_id uuid,
@@ -197,4 +218,59 @@ CREATE TABLE IF NOT EXISTS unread_notifications_count (
     user_id uuid,
     count counter,
     PRIMARY KEY (user_id)
+);
+
+-- ==================== MESSAGE REACTIONS ====================
+-- One row per (message, user, emoji). App enforces one emoji per user per message.
+CREATE TABLE IF NOT EXISTS message_reactions (
+    message_id timeuuid,
+    user_id uuid,
+    emoji text,
+    created_at timestamp,
+    PRIMARY KEY ((message_id), user_id, emoji)
+);
+
+-- ==================== STORIES / STATUTS 24H ====================
+-- Statuts publiés, partitionnés par auteur (liste chronologique)
+CREATE TABLE IF NOT EXISTS stories (
+    story_id uuid,
+    user_id uuid,
+    media_type text,
+    media_url text,
+    caption text,
+    background text,
+    duration int,
+    created_at timestamp,
+    expires_at timestamp,
+    PRIMARY KEY ((user_id), created_at, story_id)
+) WITH CLUSTERING ORDER BY (created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_stories_expires ON stories (expires_at);
+
+-- Lookup par story_id (vue / suppression / viewers)
+CREATE TABLE IF NOT EXISTS stories_by_id (
+    story_id uuid PRIMARY KEY,
+    user_id uuid,
+    media_type text,
+    media_url text,
+    caption text,
+    background text,
+    duration int,
+    created_at timestamp,
+    expires_at timestamp
+);
+
+CREATE TABLE IF NOT EXISTS story_views (
+    story_id uuid,
+    viewer_id uuid,
+    viewed_at timestamp,
+    PRIMARY KEY ((story_id), viewer_id)
+);
+
+CREATE TABLE IF NOT EXISTS story_reactions (
+    story_id uuid,
+    reactor_id uuid,
+    emoji text,
+    created_at timestamp,
+    PRIMARY KEY ((story_id), reactor_id)
 );

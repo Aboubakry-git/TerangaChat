@@ -21,7 +21,7 @@
         </a>
         <span class="sidebar-app-name">TerangaChat</span>
         <div class="sidebar-actions">
-          <button class="icon-btn" type="button" title="Statut"><i class="fas fa-circle-notch"></i></button>
+          <button class="icon-btn" type="button" id="statusHeaderBtn" title="Statut"><i class="fas fa-circle-notch"></i></button>
           <button class="icon-btn" id="newChatBtn" title="Nouvelle discussion"><i class="fas fa-edit"></i></button>
           <button class="icon-btn" id="newGroupBtn" title="Nouveau groupe"><i class="fas fa-users"></i></button>
           <button class="icon-btn" id="appMenuBtn" title="Menu"><i class="fas fa-ellipsis-v"></i></button>
@@ -34,6 +34,25 @@
           <button class="dropdown-item" type="button" data-sidebar-panel="calls"><i class="fas fa-phone"></i> Appels</button>
           <button class="dropdown-item" type="button" data-sidebar-panel="notifications"><i class="fas fa-bell"></i> Notifications</button>
           <a class="dropdown-item" href="/logout"><i class="fas fa-sign-out-alt"></i> Déconnexion</a>
+        </div>
+      </div>
+
+      <!-- Statuts 24h -->
+      <div class="stories-bar" id="storiesBar" aria-label="Statuts">
+        <div class="stories-track" id="storiesTrack">
+          <button type="button" class="story-bubble story-bubble-add" id="addStoryBtn" title="Ajouter un statut">
+            <span class="story-ring">
+              <span class="story-avatar">
+                <% if (user.avatar_url) { %>
+                  <img src="<%= user.avatar_url %>" alt="">
+                <% } else { %>
+                  <span class="avatar-placeholder"><%= getInitials(user.username || '?') %></span>
+                <% } %>
+                <span class="story-add-badge" aria-hidden="true"><i class="fas fa-plus"></i></span>
+              </span>
+            </span>
+            <span class="story-label">Mon statut</span>
+          </button>
         </div>
       </div>
 
@@ -103,13 +122,15 @@
       <% if (activeConversation) { %>
         <div class="chat-header" data-conv-id="<%= activeConversation.conversation_id %>">
           <button class="icon-btn mobile-back" id="mobileBack"><i class="fas fa-arrow-left"></i></button>
-          <div class="chat-header-info">
+          <div class="chat-header-info<%= activeConversation.type === 'private' && otherPeer ? ' chat-header-info--clickable' : '' %>"
+               id="chatHeaderInfo"
+               <%= activeConversation.type === 'private' && otherPeer ? 'role="button" tabindex="0" aria-label="Voir le profil"' : '' %>>
             <div class="chat-header-avatar">
               <% if (activeConversation.avatar_url) { %>
                 <img src="<%= activeConversation.avatar_url %>" alt="">
               <% } else { %>
                 <div class="avatar-placeholder">
-                  <%= activeConversation.type === 'group' ? '<i class="fas fa-users"></i>' : getInitials(activeConversation.name || '?') %>
+                  <% if (activeConversation.type === 'group') { %><i class="fas fa-users"></i><% } else { %><%= getInitials(activeConversation.name || '?') %><% } %>
                 </div>
               <% } %>
             </div>
@@ -118,8 +139,10 @@
               <span class="chat-header-status" id="presenceStatus">
                 <% if (activeConversation.type === 'group') { %>
                   <%= activeMembers.length %> membres
+                <% } else if (otherPeer && otherPeer.presenceLabel) { %>
+                  <span class="presence-text<%= otherPeer.isOnline ? ' online' : '' %>"><%= otherPeer.presenceLabel %></span>
                 <% } else { %>
-                  <span class="presence-text">Hors ligne</span>
+                  <span class="presence-text"></span>
                 <% } %>
               </span>
             </div>
@@ -127,6 +150,9 @@
           <div class="chat-header-actions">
             <button class="icon-btn" id="callVideoBtn" title="Appel vidéo"><i class="fas fa-video"></i></button>
             <button class="icon-btn" id="callAudioBtn" title="Appel audio"><i class="fas fa-phone"></i></button>
+            <% if (activeConversation.type === 'group') { %>
+              <button class="icon-btn" id="manageMembersBtn" title="Participants"><i class="fas fa-user-friends"></i></button>
+            <% } %>
             <button class="icon-btn" id="searchInConvBtn" title="Rechercher"><i class="fas fa-search"></i></button>
             <button class="icon-btn" id="convMenuBtn" title="Menu"><i class="fas fa-ellipsis-v"></i></button>
           </div>
@@ -136,7 +162,9 @@
             <button class="dropdown-item" id="archiveBtn"><i class="fas fa-archive"></i> Archiver</button>
             <button class="dropdown-item" id="exportBtn"><i class="fas fa-download"></i> Exporter</button>
             <% if (activeConversation.type === 'group') { %>
-              <button class="dropdown-item" id="addMemberBtn"><i class="fas fa-user-plus"></i> Ajouter membre</button>
+              <% if (currentUserRole === 'admin') { %>
+                <button class="dropdown-item" id="addMemberBtn"><i class="fas fa-user-plus"></i> Ajouter des membres</button>
+              <% } %>
               <button class="dropdown-item" id="leaveGroupBtn"><i class="fas fa-door-open"></i> Quitter le groupe</button>
             <% } %>
           </div>
@@ -155,7 +183,10 @@
               <% if (messageDay !== previousMessageDay) { previousMessageDay = messageDay; %>
                 <div class="date-separator"><span><%= messageDay %></span></div>
               <% } %>
-              <div class="message <%= msg.sender_id.toString() === user.user_id.toString() ? 'outgoing' : 'incoming' %>" data-message-id="<%= msg.message_id %>">
+              <div class="message <%= msg.message_type === 'system' ? 'system' : (msg.sender_id.toString() === user.user_id.toString() ? 'outgoing' : 'incoming') %>" data-message-id="<%= msg.message_id %>">
+                <% if (msg.message_type === 'system') { %>
+                  <div class="system-message"><%= msg.content %></div>
+                <% } else { %>
                 <% if (activeConversation.type === 'group' && msg.sender_id.toString() !== user.user_id.toString()) { %>
                   <div class="message-sender"><%= msg.sender_name || 'Utilisateur' %></div>
                 <% } %>
@@ -195,11 +226,29 @@
                     <% } %>
                   </div>
                 </div>
+                <div class="message-reactions" data-message-id="<%= msg.message_id %>">
+                  <% if (msg.reactions && msg.reactions.length) { %>
+                    <% msg.reactions.forEach(function(r) { %>
+                      <button type="button" class="reaction-badge<%= r.reactedByMe ? ' mine' : '' %>" data-emoji="<%= r.emoji %>" title="<%= r.emoji %>">
+                        <span class="reaction-emoji"><%= r.emoji %></span>
+                        <span class="reaction-count"><%= r.count %></span>
+                      </button>
+                    <% }) %>
+                  <% } %>
+                </div>
+                <div class="reaction-bar" aria-label="Réagir">
+                  <% ['👍','❤️','😂','😮','😢','🙏'].forEach(function(e) { %>
+                    <button type="button" class="reaction-quick-btn" data-emoji="<%= e %>"><%= e %></button>
+                  <% }) %>
+                  <button type="button" class="reaction-quick-btn reaction-more-btn" data-action="more-reactions" title="Plus"><i class="fas fa-plus"></i></button>
+                </div>
                 <div class="message-actions-menu">
-                  <button class="msg-action" data-action="reply"><i class="fas fa-reply"></i></button>
+                  <button class="msg-action" data-action="reply" title="Répondre"><i class="fas fa-reply"></i></button>
+                  <button class="msg-action" data-action="react" title="Réagir"><i class="fas fa-smile"></i></button>
                   <button class="msg-action" data-action="edit"><i class="fas fa-edit"></i></button>
                   <button class="msg-action" data-action="delete"><i class="fas fa-trash"></i></button>
                 </div>
+                <% } %>
               </div>
             <% }) %>
           <% } else { %>
@@ -258,7 +307,7 @@
     <div class="modal">
       <div class="modal-header">
         <h3>Nouvelle discussion</h3>
-        <button class="icon-btn" onclick="document.getElementById('newChatModal').style.display='none'"><i class="fas fa-times"></i></button>
+        <button class="icon-btn" data-close-modal="newChatModal" aria-label="Fermer"><i class="fas fa-times"></i></button>
       </div>
       <div class="modal-body">
         <div class="search-box">
@@ -270,14 +319,15 @@
     </div>
   </div>
 
-  <!-- New Group Modal -->
+  <!-- New Group Modal — étape 1 : nom + description (admin seul) -->
   <div class="modal-overlay" id="newGroupModal" style="display:none">
     <div class="modal">
       <div class="modal-header">
         <h3>Nouveau groupe</h3>
-        <button class="icon-btn" onclick="document.getElementById('newGroupModal').style.display='none'"><i class="fas fa-times"></i></button>
+        <button class="icon-btn" data-close-modal="newGroupModal" aria-label="Fermer"><i class="fas fa-times"></i></button>
       </div>
       <div class="modal-body">
+        <p class="modal-hint">Créez le groupe, puis ajoutez des membres.</p>
         <div class="group-avatar-field">
           <label for="groupAvatarInput" class="group-avatar-picker" title="Ajouter une photo de groupe">
             <span class="group-avatar-preview" id="groupAvatarPreview"><i class="fas fa-camera"></i></span>
@@ -286,22 +336,39 @@
           <input type="file" id="groupAvatarInput" accept="image/*" hidden>
         </div>
         <div class="form-group">
-          <label>Nom du groupe</label>
+          <label for="groupName">Nom du groupe</label>
           <input type="text" id="groupName" placeholder="Mon groupe">
         </div>
         <div class="form-group">
-          <label>Description (optionnel)</label>
+          <label for="groupDescription">Description (optionnel)</label>
           <input type="text" id="groupDescription" placeholder="Description du groupe">
         </div>
-        <div class="search-box">
-          <i class="fas fa-search"></i>
-          <input type="text" id="groupMemberSearch" placeholder="Ajouter des membres...">
-        </div>
-        <div class="selected-members" id="selectedMembers"></div>
-        <div class="search-results" id="groupMemberResults"></div>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-primary" id="createGroupBtn">Créer le groupe</button>
+        <button class="btn btn-primary" id="createGroupBtn" type="button">Créer le groupe</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Members Modal — étape 2 (après création ou via menu admin) -->
+  <div class="modal-overlay" id="addMembersModal" style="display:none">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Ajouter des membres</h3>
+        <button class="icon-btn" data-close-modal="addMembersModal" aria-label="Fermer"><i class="fas fa-times"></i></button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-hint">Seuls les admins peuvent ajouter des membres.</p>
+        <div class="search-box">
+          <i class="fas fa-search"></i>
+          <input type="text" id="addMemberSearch" placeholder="Rechercher un utilisateur...">
+        </div>
+        <div class="selected-members" id="addSelectedMembers"></div>
+        <div class="search-results" id="addMemberResults"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" type="button" data-close-modal="addMembersModal">Plus tard</button>
+        <button class="btn btn-primary" id="confirmAddMembersBtn" type="button">Ajouter</button>
       </div>
     </div>
   </div>
@@ -318,18 +385,19 @@
           <div class="avatar-placeholder"><i class="fas fa-user"></i></div>
         </div>
         <div class="call-status" id="callStatus">Appel en cours...</div>
-        <video id="localVideo" autoplay muted style="display:none"></video>
-        <div id="remoteVideos"></div>
+        <video id="localVideo" autoplay muted playsinline style="display:none"></video>
+        <div id="remoteVideos" class="remote-videos"></div>
       </div>
       <div class="call-controls">
-        <button class="call-btn" id="muteBtn"><i class="fas fa-microphone"></i></button>
-        <button class="call-btn" id="videoBtn"><i class="fas fa-video"></i></button>
-        <button class="call-btn hangup" id="hangupBtn"><i class="fas fa-phone-slash"></i></button>
+        <button type="button" class="call-btn" id="muteBtn" title="Micro"><i class="fas fa-microphone"></i></button>
+        <button type="button" class="call-btn" id="videoBtn" title="Caméra"><i class="fas fa-video"></i></button>
+        <button type="button" class="call-btn" id="speakerBtn" title="Haut-parleur"><i class="fas fa-volume-up"></i></button>
+        <button type="button" class="call-btn hangup" id="hangupBtn" title="Raccrocher"><i class="fas fa-phone-slash"></i></button>
       </div>
     </div>
   </div>
 
-  <!-- Incoming Call Modal -->
+  <!-- Incoming Call / Group Invite Modal -->
   <div class="modal-overlay call-overlay" id="incomingCallModal" style="display:none">
     <div class="call-container">
       <div class="call-header">
@@ -342,8 +410,14 @@
         <div class="call-status" id="incomingCallStatus">Appel entrant...</div>
       </div>
       <div class="call-controls">
-        <button class="call-btn accept" id="acceptCallBtn"><i class="fas fa-phone"></i></button>
-        <button class="call-btn reject" id="rejectCallBtn"><i class="fas fa-phone-slash"></i></button>
+        <button type="button" class="call-btn accept" id="acceptCallBtn" title="Accepter">
+          <i class="fas fa-phone"></i>
+          <span class="call-btn-label" id="acceptCallLabel">Accepter</span>
+        </button>
+        <button type="button" class="call-btn reject" id="rejectCallBtn" title="Refuser">
+          <i class="fas fa-phone-slash"></i>
+          <span class="call-btn-label" id="rejectCallLabel">Refuser</span>
+        </button>
       </div>
     </div>
   </div>
@@ -353,9 +427,108 @@
     <div class="modal">
       <div class="modal-header">
         <h3>Informations</h3>
-        <button class="icon-btn" onclick="document.getElementById('convInfoModal').style.display='none'"><i class="fas fa-times"></i></button>
+        <button class="icon-btn" data-close-modal="convInfoModal" aria-label="Fermer"><i class="fas fa-times"></i></button>
       </div>
       <div class="modal-body" id="convInfoBody"></div>
+    </div>
+  </div>
+
+  <!-- User Profile Modal (private chat peer) -->
+  <div class="modal-overlay" id="userProfileModal" style="display:none">
+    <div class="modal user-profile-modal">
+      <div class="modal-header">
+        <h3>Profil</h3>
+        <button class="icon-btn" data-close-modal="userProfileModal" aria-label="Fermer"><i class="fas fa-times"></i></button>
+      </div>
+      <div class="modal-body user-profile-body" id="userProfileBody">
+        <div class="user-profile-loading">Chargement…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Full reaction palette -->
+  <div class="modal-overlay" id="reactionPaletteModal" style="display:none">
+    <div class="modal reaction-palette-modal">
+      <div class="modal-header">
+        <h3>Réagir</h3>
+        <button class="icon-btn" data-close-modal="reactionPaletteModal" aria-label="Fermer"><i class="fas fa-times"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="reaction-palette-grid" id="reactionPaletteGrid"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Composer statut -->
+  <div class="modal-overlay" id="storyComposerModal" style="display:none" role="dialog" aria-modal="true" aria-labelledby="storyComposerTitle">
+    <div class="modal story-composer-modal">
+      <div class="modal-header">
+        <h3 id="storyComposerTitle">Nouveau statut</h3>
+        <button class="icon-btn" type="button" id="closeStoryComposerBtn" aria-label="Fermer"><i class="fas fa-times"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="story-composer-tabs" role="tablist">
+          <button type="button" class="story-tab active" data-story-tab="text">Texte</button>
+          <button type="button" class="story-tab" data-story-tab="media">Photo / Vidéo</button>
+        </div>
+        <div class="story-tab-panel" id="storyTabText">
+          <textarea id="storyTextInput" maxlength="500" rows="4" placeholder="Écrivez quelque chose…"></textarea>
+          <div class="story-bg-swatches" id="storyBgSwatches" aria-label="Couleur de fond"></div>
+          <div class="story-text-preview" id="storyTextPreview">Aperçu</div>
+        </div>
+        <div class="story-tab-panel" id="storyTabMedia" style="display:none">
+          <label class="story-file-drop" for="storyMediaInput">
+            <i class="fas fa-cloud-upload-alt"></i>
+            <span>Choisir une image ou une vidéo (max 50 Mo)</span>
+          </label>
+          <input type="file" id="storyMediaInput" accept="image/*,video/*" hidden>
+          <div class="story-media-preview" id="storyMediaPreview" style="display:none"></div>
+          <input type="text" id="storyMediaCaption" maxlength="500" placeholder="Légende (optionnel)">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" id="cancelStoryComposerBtn">Annuler</button>
+        <button type="button" class="btn btn-primary" id="publishStoryBtn">Publier</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Lecteur statut plein écran -->
+  <div class="story-viewer" id="storyViewer" style="display:none" role="dialog" aria-modal="true">
+    <div class="story-viewer-progress" id="storyProgressBars"></div>
+    <div class="story-viewer-header">
+      <div class="story-viewer-user">
+        <div class="story-viewer-avatar" id="storyViewerAvatar"></div>
+        <div>
+          <div class="story-viewer-name" id="storyViewerName"></div>
+          <div class="story-viewer-time" id="storyViewerTime"></div>
+        </div>
+      </div>
+      <div class="story-viewer-actions">
+        <button type="button" class="icon-btn" id="storyViewersBtn" title="Vues" style="display:none"><i class="fas fa-eye"></i> <span id="storyViewCount">0</span></button>
+        <button type="button" class="icon-btn" id="storyDeleteBtn" title="Supprimer" style="display:none"><i class="fas fa-trash"></i></button>
+        <button type="button" class="icon-btn" id="storyCloseBtn" aria-label="Fermer"><i class="fas fa-times"></i></button>
+      </div>
+    </div>
+    <div class="story-viewer-body" id="storyViewerBody">
+      <div class="story-tap story-tap-prev" id="storyTapPrev" aria-label="Précédent"></div>
+      <div class="story-tap story-tap-next" id="storyTapNext" aria-label="Suivant"></div>
+      <div class="story-media-stage" id="storyMediaStage"></div>
+    </div>
+    <div class="story-viewer-footer" id="storyReplyBar" style="display:none">
+      <input type="text" id="storyReplyInput" placeholder="Répondre…" maxlength="1000" autocomplete="off">
+      <button type="button" class="icon-btn" id="storyReplySendBtn" title="Envoyer"><i class="fas fa-paper-plane"></i></button>
+    </div>
+  </div>
+
+  <!-- Liste des vues -->
+  <div class="modal-overlay" id="storyViewersModal" style="display:none">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Vues</h3>
+        <button class="icon-btn" type="button" id="closeStoryViewersBtn" aria-label="Fermer"><i class="fas fa-times"></i></button>
+      </div>
+      <div class="modal-body" id="storyViewersList"></div>
     </div>
   </div>
 
@@ -365,12 +538,23 @@
     window.currentAvatar = '<%= user.avatar_url || "" %>';
     window.activeConversationId = '<%= activeConversation ? activeConversation.conversation_id : "" %>';
     window.activeConversationType = '<%= activeConversation ? activeConversation.type : "" %>';
+    window.otherUserId = '<%= otherPeer ? otherPeer.userId : "" %>';
+    window.currentUserRole = '<%= currentUserRole || "" %>';
+    window.peerJsConfig = {
+      // Même origine que la page (plus de port 9000 séparé)
+      path: '<%= typeof peerJsPath !== 'undefined' ? peerJsPath : '/peerjs' %>',
+      sameOrigin: true,
+      turnUrls: <%- JSON.stringify(typeof turnUrls !== 'undefined' ? turnUrls : []) %>,
+      turnUsername: <%- JSON.stringify(typeof turnUsername !== 'undefined' ? turnUsername : '') %>,
+      turnCredential: <%- JSON.stringify(typeof turnCredential !== 'undefined' ? turnCredential : '') %>
+    };
   </script>
   <script src="/socket.io/socket.io.js"></script>
   <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
   <script src="/js/theme.js"></script>
   <script src="/js/chat.js"></script>
   <script src="/js/calls.js"></script>
+  <script src="/js/stories.js"></script>
   <script src="/js/responsive.js"></script>
 </body>
 </html>
