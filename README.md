@@ -71,3 +71,14 @@ npm install
 
 # 6. Lancer l'application
 npm start
+
+## Page d'inscription
+<img width="1918" height="939" alt="image" src="https://github.com/user-attachments/assets/c0e0da2c-c0f4-4dfe-8d9a-bee68b341e51" />
+
+## Page de connexion
+<img width="1917" height="941" alt="image" src="https://github.com/user-attachments/assets/25ac8227-881f-4040-99e7-17eafceb71c6" />
+
+## Interface de l'application web TerangaChat
+<img width="1718" height="800" alt="image" src="https://github.com/user-attachments/assets/bbb0932a-8e01-41e0-aef8-dacad5c84a23" />
+
+
