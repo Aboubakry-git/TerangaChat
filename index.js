@@ -177,7 +177,7 @@ fs.mkdirSync(path.join(uploadDir, 'stories'), { recursive: true });
   }
   startStoriesCleanupJob();
 
-  server.listen(config.port, () => {
+server.listen(config.port, '0.0.0.0', () => {
     const proto = USE_HTTPS ? 'https' : 'http';
     console.log(`🚀 Server running on ${proto}://localhost:${config.port}`);
     console.log(`📡 PeerJS mounted at ${proto}://localhost:${config.port}${peerPath}`);
